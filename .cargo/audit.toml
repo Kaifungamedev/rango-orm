@@ -3,4 +3,16 @@
 # sqlx-mysql only uses rsa to *encrypt* the password with the server's public key
 # (caching_sha2_password over a non-TLS connection). No private-key operation, so
 # the attack does not apply. No fixed rsa release exists yet; re-check on sqlx bumps.
-ignore = ["RUSTSEC-2023-0071"]
+ignore = [
+    "RUSTSEC-2023-0071",
+    # Temporary (2026-11-16), re-check on every sqlx / SurrealDB bump:
+    # SQLite reading uninitialized page cache through a crafted db + `-wal` pair (local
+    # attacker, victim opens the files). sqlx 0.9 caps libsqlite3-sys at 0.37; the fix is 0.39.
+    "RUSTSEC-2026-0459",
+    # bincode unmaintained (no known vulnerability), via surrealmx: embedded SurrealDB
+    # engine only (opt-in `surrealdb-mem`).
+    "RUSTSEC-2025-0141",
+    # crypto-bigint timing variability, via elliptic-curve 0.13 / jsonwebtoken inside the
+    # SurrealDB engine (opt-in `surrealdb` features); elliptic-curve 0.13 cannot take 0.7.6.
+    "RUSTSEC-2026-0387",
+]

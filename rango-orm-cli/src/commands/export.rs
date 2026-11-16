@@ -71,12 +71,26 @@ pub(crate) async fn fetch_tables(
     match backend {
         BackendKind::Sqlite => export_sqlite(database_url, requested).await,
         BackendKind::Mysql => export_mysql(database_url, requested).await,
+        BackendKind::Surreal => export_surreal(database_url, requested).await,
         _ => export_postgres(database_url, requested).await,
     }
 }
 
+#[cfg(feature = "surrealdb")]
+async fn export_surreal(database_url: &str, requested: &[String]) -> Result<Vec<(String, Rows)>> {
+    let pool = rango_orm_surrealdb::connect_url(database_url)
+        .await
+        .context("Failed to connect to SurrealDB")?;
+    super::surreal::export_tables(&pool, requested).await
+}
+
+#[cfg(not(feature = "surrealdb"))]
+async fn export_surreal(_: &str, _: &[String]) -> Result<Vec<(String, Rows)>> {
+    bail!(super::SURREAL_DISABLED)
+}
+
 /// `requested` (checked against `existing`) or every table, ordered parents first.
-fn select_tables(
+pub(crate) fn select_tables(
     existing: Vec<String>,
     requested: &[String],
     edges: &[(String, String)],

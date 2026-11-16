@@ -47,5 +47,17 @@ services:
       timeout: 5s
       retries: 30
 
+  surrealdb:
+    image: surrealdb/surrealdb:v4.0.1
+    profiles: [surrealdb]
+    command: ["start", "--user", "root", "--pass", "rango", "--bind", "0.0.0.0:8000", "memory"]
+    ports:
+      - "${RANGO_SURREALDB_PORT:-8011}:8000"
+    healthcheck:
+      test: ["CMD", "/surreal", "is-ready", "--endpoint", "http://127.0.0.1:8000"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
 volumes:
   rango_pgdata:

@@ -46,7 +46,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Rust MSRV
-        uses: dtolnay/rust-toolchain@1.94
+        uses: dtolnay/rust-toolchain@1.95
 
       - name: Cache cargo
         uses: actions/cache@v6
@@ -66,7 +66,7 @@ jobs:
         run: cargo +stable publish --workspace --dry-run --locked
 
       - name: cargo check (MSRV)
-        run: cargo +1.94 check --workspace --all-features --all-targets --locked
+        run: cargo +1.95 check --workspace --all-features --all-targets --locked
 
   audit:
     name: Security audit
@@ -101,6 +101,12 @@ jobs:
 
       - name: cargo test (SQLite integration — in-memory)
         run: cargo test --test integration_sqlite --features rango-tests/integration-sqlite -- --test-threads=1
+
+      # Opt-in backend (BUSL-1.1 SDK): embedded engine, no service needed.
+      - name: cargo test (SurrealDB integration — embedded)
+        run: |
+          cargo test -p rango-tests --test integration_surrealdb --features integration-surrealdb
+          cargo test -p rango-orm-cli --features surrealdb-mem --bin rango
 
   integration:
     name: Integration tests (PostgreSQL ${{ matrix.pg }})

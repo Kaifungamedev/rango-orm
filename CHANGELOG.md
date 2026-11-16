@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Feat: SurrealDB 4 backend, `rango-orm-surrealdb`, opt-in (`rango-orm` features `surrealdb` / `surrealdb-mem`, `rango-orm-cli` feature `surrealdb`). The SurrealDB SDK is BUSL-1.1, so no default build links it. Models are `SCHEMAFULL` tables, the PK is the record key (auto-increment keys from a sequence), a `ForeignKey` is a `record<t>` link with `REFERENCE ON DELETE` and an existence check, M2M pivots are tables of two links. CRUD, `get_or_create` / `update_or_create`, bulk ops, the full query builder (SQL NULL semantics kept), `select_related` / `prefetch_related`, subqueries, aggregates, `values`, `select_as`, `explain_analyze` (`EXPLAIN FULL`), M2M, `atomic` / `atomic_retry`, raw SurrealQL, typed errors, `SurrealQueryExt` (`json_path_eq`, `contains`). URLs: `surrealdb://` (wss for remote hosts, ws on loopback), `surrealdb+ws|wss|http|https://`, `surrealdb+mem://`.
+- Feat: `rango makemigrations` writes SurrealQL (`.surql`) for `backend = "surrealdb"`; `rango migrate`, `export`, `import`, `dump`, `restore`, `backup` work against SurrealDB with the same Rango JSON as the SQL backends.
+- MSRV: Rust 1.95 (was 1.94), required by the SurrealDB 4 SDK (`std::hint::cold_path`, sysinfo 0.39).
+- Internal: `Dialect::Surreal`, `BackendKind::Surreal` (new enum variants), `quote_ident_surreal`, `rango_orm_core::surreal_schema`.
+
 ## 0.2.0 (2026-11-08)
 
 - Fix: `select_as::<P>().all()` emits the `db.query` tracing span like every other query-builder terminal (all backends).

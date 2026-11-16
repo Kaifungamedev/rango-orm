@@ -1,8 +1,9 @@
+use crate::commands::migrate::migration_extension;
 use crate::migration::diff::{SchemaDiff, diff, sqlite_rebuilds};
 use crate::migration::renames::detect_renames;
 use crate::migration::scanner::{fk_type, generate_pivot_table, scan_models};
 use crate::migration::snapshot::Snapshot;
-use crate::migration::sql::generate_sql_from_diff;
+use crate::migration::sql::{generate_sql_from_diff, generate_surql_from_diff};
 use anyhow::{Result, bail};
 use rango_orm_core::{BackendKind, TableSchema};
 use std::fs;
@@ -74,8 +75,10 @@ pub fn run(
     let backend_label = match backend {
         BackendKind::Sqlite => "sqlite",
         BackendKind::Mysql => "mysql",
+        BackendKind::Surreal => "surrealdb",
         _ => "postgres",
     };
+    let ext = migration_extension(backend);
     println!(
         "🔍 Scanning models in {}... (backend: {})",
         src_dir, backend_label
@@ -152,7 +155,12 @@ pub fn run(
     } else {
         diffs.clone()
     };
-    let sql = with_destructive_warning(generate_sql_from_diff(&sql_diffs, backend), &destructive);
+    let generated = if backend == BackendKind::Surreal {
+        generate_surql_from_diff(&sql_diffs, &schemas)
+    } else {
+        generate_sql_from_diff(&sql_diffs, backend)
+    };
+    let sql = with_destructive_warning(generated, &destructive);
 
     // --dry-run: print SQL, do not write files
     if dry_run {
@@ -165,8 +173,8 @@ pub fn run(
         let next_num = next_migration_number(output_dir)?;
         let label = migration_label(&diffs);
         eprintln!(
-            "❌ Pending migration detected: {:04}_{}.sql",
-            next_num, label
+            "❌ Pending migration detected: {:04}_{}.{}",
+            next_num, label, ext
         );
         eprintln!("   Run `rango makemigrations` to generate it.");
         std::process::exit(1);
@@ -180,7 +188,7 @@ pub fn run(
 
     let next_num = next_migration_number(output_dir)?;
     let label = migration_label(&diffs);
-    let filename = format!("{}/{:04}_{}.sql", output_dir, next_num, label);
+    let filename = format!("{}/{:04}_{}.{}", output_dir, next_num, label, ext);
     fs::write(&filename, &sql)?;
     println!("✅ Migration generated: {}", filename);
 

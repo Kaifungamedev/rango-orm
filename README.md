@@ -12,7 +12,7 @@ A Django-inspired async ORM for Rust: define a struct, Rango generates the schem
 - Migrations generated, never written: `rango makemigrations` diffs typed schema snapshots against the models.
 - Typed queries: columns are generated per field; a wrong column or wrong value type is a compile error, and string names are still accepted.
 - Real SQL semantics: `ON DELETE CASCADE` in the DB, every FK indexed, `RETURNING *` where the database has it.
-- 100% async on sqlx, with PostgreSQL, SQLite and MySQL / MariaDB using the same API.
+- 100% async on sqlx, with PostgreSQL, SQLite and MySQL / MariaDB using the same API, plus an opt-in SurrealDB 4 backend.
 - Secure by default: bound parameters everywhere, identifiers always quoted, passwords hashed with Argon2id, TLS required for remote Postgres.
 
 ## Quick look
@@ -76,6 +76,8 @@ rango-orm = "0.2" # PostgreSQL, default
 # rango-orm = { version = "0.2", default-features = false, features = ["sqlite"] }
 # MySQL / MariaDB variant:
 # rango-orm = { version = "0.2", default-features = false, features = ["mysql"] }
+# SurrealDB 4 variant (the SurrealDB SDK is BUSL-1.1, see below):
+# rango-orm = { version = "0.2", default-features = false, features = ["surrealdb"] }
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -93,6 +95,13 @@ In production, pass the URL via `DATABASE_URL`; never put credentials in `rango.
 | MySQL | 8.0+ | 8.0, 8.4 | oldest version tested |
 | MariaDB | 10.6+ | 10.6, 11.4 | oldest version tested |
 | SQLite | 3.35+ | bundled 3.46 | `RETURNING` (3.35), `UPDATE … FROM` (3.33); sqlx bundles SQLite, so nothing to install |
+| SurrealDB | 4.0+ | embedded 4.0.1 (CI); server 4.0 over ws and http (`just test-surrealdb-server`) | `datetime`/`duration`, sequences, `REFERENCE ON DELETE`; opt-in, see below |
+
+The SurrealDB backend links the official SurrealDB 4 SDK, which is **BUSL-1.1** (its use
+grant excludes offering it as a database service). It is therefore opt-in: only the
+`surrealdb` features of `rango-orm` and `rango-orm-cli` (`cargo install rango-orm-cli
+--features surrealdb`) pull it in; default builds stay MIT OR Apache-2.0 throughout. See
+[the SurrealDB page](https://ikarys.github.io/rango-orm/backends/surrealdb.html).
 
 ## Features
 
@@ -112,6 +121,7 @@ In production, pass the URL via `DATABASE_URL`; never put credentials in `rango.
 | PostgreSQL backend | ✅ |
 | SQLite backend | ✅ (ALTER via table rebuild) |
 | MySQL 8.0+ / MariaDB 10.6+ backend | ✅ (no `RETURNING`, non-transactional DDL) |
+| SurrealDB 4 backend | ✅ opt-in (SurrealQL migrations, records as keys, no interactive transactions over HTTP) |
 | Keyset pagination, optimistic locking | 📋 planned |
 
 ## Rango vs other Rust ORMs
@@ -156,12 +166,13 @@ The user guide is an mdBook in `docs/` (`mdbook serve docs`).
 
 | Crate | Role |
 |---|---|
-| `rango-orm` | facade crate (imported as `rango`), re-exports everything, features `postgres` default / `sqlite` / `mysql` |
+| `rango-orm` | facade crate (imported as `rango`), re-exports everything, features `postgres` default / `sqlite` / `mysql` / `surrealdb` |
 | `rango-orm-core` | DB-free traits, schema types, field types |
 | `rango-orm-derive` | `#[derive(Model)]` |
 | `rango-orm-postgres` | PostgreSQL backend (sqlx) |
 | `rango-orm-sqlite` | SQLite backend (sqlx) |
 | `rango-orm-mysql` | MySQL / MariaDB backend (sqlx) |
+| `rango-orm-surrealdb` | SurrealDB 4 backend (official SDK, BUSL-1.1, opt-in) |
 | `rango-orm-cli` | `rango` binary |
 | `rango-tests` | integration tests |
 | `benchmarks/` | Criterion: Rango vs sqlx, SeaORM, Diesel |
@@ -171,6 +182,7 @@ The user guide is an mdBook in `docs/` (`mdbook serve docs`).
 ```bash
 just dev          # starts Postgres in Docker
 just test-all     # unit + SQLite + Postgres + MySQL/MariaDB integration tests
+just test-surrealdb  # SurrealDB, embedded engine (no Docker)
 just check        # fmt + clippy
 just bench-compare
 just audit

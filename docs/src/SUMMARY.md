@@ -45,6 +45,7 @@
 - [PostgreSQL](./backends/postgres.md)
 - [SQLite](./backends/sqlite.md)
 - [MySQL / MariaDB](./backends/mysql.md)
+- [SurrealDB](./backends/surrealdb.md)
 - [Backend-specific Features](./backends/extensions.md)
 
 # CLI Reference

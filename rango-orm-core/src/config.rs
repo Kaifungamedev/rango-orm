@@ -1,5 +1,5 @@
 /// Database connection configuration.
-/// Backend-agnostic — works for PostgreSQL, MySQL, MariaDB, SQLite.
+/// Backend-agnostic — works for PostgreSQL, MySQL, MariaDB, SQLite, SurrealDB.
 #[derive(Clone)]
 pub struct DatabaseConfig {
     pub url: String,
@@ -109,6 +109,8 @@ impl DatabaseConfig {
             BackendKind::Mysql
         } else if self.url.starts_with("sqlite") {
             BackendKind::Sqlite
+        } else if self.url.starts_with("surrealdb") {
+            BackendKind::Surreal
         } else {
             BackendKind::Unknown
         }
@@ -120,14 +122,17 @@ pub enum BackendKind {
     Postgres,
     Mysql,
     Sqlite,
+    /// SurrealDB 4 (`surrealdb://`, `surrealdb+ws://`, `surrealdb+mem://`, ...).
+    Surreal,
     Unknown,
 }
 
 impl BackendKind {
-    /// Quote an identifier for this backend: backticks on MySQL, `"` elsewhere.
+    /// Quote an identifier for this backend: backticks on MySQL and SurrealDB, `"` elsewhere.
     pub fn quote_ident(self, ident: &str) -> String {
         match self {
             BackendKind::Mysql => crate::query::quote_ident_mysql(ident),
+            BackendKind::Surreal => crate::query::quote_ident_surreal(ident),
             _ => crate::query::quote_ident(ident),
         }
     }

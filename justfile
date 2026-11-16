@@ -19,11 +19,24 @@ db:
 
 # Stop local databases
 db-stop:
-    docker compose --profile mysql down
+    docker compose --profile mysql --profile surrealdb down
 
 # Start local MySQL 8.4 (port 3307) and MariaDB 11.4 (port 3308), in-memory storage
 db-mysql:
     docker compose --profile mysql up -d --wait mysql mariadb
+
+# SurrealDB 4 tests on the embedded engine (no server, no Docker). The SDK is BUSL-1.1:
+# these builds are the only ones that link it.
+test-surrealdb:
+    cargo test -p rango-orm-surrealdb --features kv-mem
+    cargo test -p rango-tests --test integration_surrealdb --features integration-surrealdb
+    cargo test -p rango-orm-cli --features surrealdb-mem --bin rango
+
+# The same SurrealDB suite over WebSocket and HTTP against a real server (Docker, port 8011)
+test-surrealdb-server:
+    docker compose --profile surrealdb up -d --wait surrealdb
+    SURREALDB_URL=surrealdb://root:rango@127.0.0.1:8011 cargo test -p rango-tests --test integration_surrealdb --features integration-surrealdb
+    SURREALDB_URL=surrealdb+http://root:rango@127.0.0.1:8011 cargo test -p rango-tests --test integration_surrealdb --features integration-surrealdb
 
 # MySQL + MariaDB integration tests (requires Docker)
 test-mysql: db-mysql
@@ -42,7 +55,8 @@ check-features:
     cargo build -p rango-orm --no-default-features --features sqlite
     cargo build -p rango-orm --no-default-features --features mysql
     cargo build -p rango-orm --no-default-features --features postgres
-    cargo test -p rango-orm --all-features --test prelude_backends
+    cargo test -p rango-orm --no-default-features --features surrealdb --test prelude_surrealdb
+    cargo test -p rango-orm --all-features --test prelude_backends --test prelude_surrealdb
 
 # Run SQLite benchmarks (no DB required)
 bench-sqlite:

@@ -188,9 +188,41 @@ pub fn quote_ident_mysql(ident: &str) -> String {
     format!("`{}`", ident.replace('`', "``"))
 }
 
+/// Quote a SurrealQL identifier (table or field name) with backticks. SurrealQL escapes
+/// with a backslash, not by doubling: `\` and `` ` `` become `\\` and ``\` ``.
+pub fn quote_ident_surreal(ident: &str) -> String {
+    format!("`{}`", ident.replace('\\', "\\\\").replace('`', "\\`"))
+}
+
+/// Name of the SurrealDB sequence that numbers the auto-increment primary key `pk` of `table`
+/// (`FieldAutoInt` / `FieldAutoBigInt`), shared by the backend and `rango makemigrations`.
+#[doc(hidden)]
+pub fn surreal_sequence_name(table: &str, pk: &str) -> String {
+    format!("{table}_{pk}_seq")
+}
+
+/// Quote a SurrealQL string literal with single quotes (`\` and `'` backslash-escaped).
+/// Only for developer-controlled names (table names inside `type::record(..)`); values
+/// are always bound.
+#[doc(hidden)]
+pub fn quote_str_surreal(s: &str) -> String {
+    format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
+}
+
 #[cfg(test)]
 mod quote_ident_tests {
-    use super::{quote_ident, quote_ident_mysql};
+    use super::{quote_ident, quote_ident_mysql, quote_ident_surreal, quote_str_surreal};
+
+    #[test]
+    fn test_quote_ident_surreal_escapes_with_backslash() {
+        assert_eq!(quote_ident_surreal("user"), "`user`");
+        assert_eq!(quote_ident_surreal("a`b"), "`a\\`b`");
+        assert_eq!(
+            quote_ident_surreal("a\\`; REMOVE TABLE x; --"),
+            "`a\\\\\\`; REMOVE TABLE x; --`"
+        );
+        assert_eq!(quote_str_surreal("it's\\"), "'it\\'s\\\\'");
+    }
 
     #[test]
     fn test_quote_ident_mysql_escapes_backticks() {

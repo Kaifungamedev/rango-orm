@@ -5,6 +5,16 @@ use rango_orm_core::{
 };
 
 pub(crate) fn generate_sql_from_diff(diffs: &[SchemaDiff], backend: BackendKind) -> String {
+    if backend == BackendKind::Surreal {
+        let schemas: Vec<TableSchema> = diffs
+            .iter()
+            .filter_map(|d| match d {
+                SchemaDiff::CreateTable(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect();
+        return generate_surql_from_diff(diffs, &schemas);
+    }
     let mut creates: Vec<TableSchema> = Vec::new();
     let mut others: Vec<SchemaDiff> = Vec::new();
     let mut drops: Vec<SchemaDiff> = Vec::new();
@@ -85,11 +95,13 @@ pub(crate) fn generate_sql_from_diff(diffs: &[SchemaDiff], backend: BackendKind)
 }
 
 mod diff_sql;
+mod surql;
 mod table;
 #[cfg(test)]
 mod tests;
 
 use diff_sql::diff_to_sql;
+pub(crate) use surql::generate_surql_from_diff;
 use table::generate_create_table;
 
 /// Quoted name of a constraint or index.

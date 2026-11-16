@@ -9,6 +9,8 @@ publish = false
 rango-orm-core = { path = "../rango-orm-core" }
 rango-orm-derive = { path = "../rango-orm-derive" }
 rango-orm = { path = "../rango-orm", default-features = false, features = ["sqlite"] }
+# BUSL-1.1 SurrealDB SDK + embedded engine: only built with `integration-surrealdb`.
+rango-orm-surrealdb = { path = "../rango-orm-surrealdb", optional = true, features = ["kv-mem"] }
 
 [dev-dependencies]
 rango-orm-postgres = { path = "../rango-orm-postgres" }
@@ -28,5 +30,7 @@ sqlx = { version = "0.9", features = ["postgres", "sqlite", "mysql", "runtime-to
 integration = []
 integration-sqlite = []
 integration-mysql = []
+# SurrealDB 4, embedded in memory: no server needed (`just test-surrealdb`).
+integration-surrealdb = ["dep:rango-orm-surrealdb"]
 # On-demand, end-to-end scenario suite (`just scenarios`). Not enabled in CI.
 integration-scenarios = []

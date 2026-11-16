@@ -92,6 +92,7 @@ async fn build_dump(
         backend: match backend {
             BackendKind::Sqlite => "sqlite",
             BackendKind::Mysql => "mysql",
+            BackendKind::Surreal => "surrealdb",
             _ => "postgres",
         }
         .to_string(),
@@ -199,7 +200,9 @@ pub async fn restore(database_url: &str, input: &str) -> Result<()> {
                 }
                 sql.push('\n');
                 sql.push_str(tracking_table_ddl(backend));
-                sql.push(';');
+                if !sql.trim_end().ends_with(';') {
+                    sql.push(';');
+                }
                 for name in names {
                     // Bound at insert time like every other value.
                     rows.push(serde_json::Map::from_iter([

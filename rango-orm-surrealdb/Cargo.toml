@@ -1,0 +1,36 @@
+[package]
+name = "rango-orm-surrealdb"
+version.workspace = true
+edition = "2024"
+rust-version.workspace = true
+# This crate is MIT OR Apache-2.0, but it links the SurrealDB 4 SDK, which is
+# BUSL-1.1 (no use "as a Database Service"). Rango only pulls it in behind the
+# opt-in `surrealdb` features of `rango-orm` and `rango-orm-cli`.
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "SurrealDB 4 backend for Rango ORM (links the BUSL-1.1 SurrealDB SDK)"
+keywords = ["orm", "database", "surrealdb", "async"]
+categories = ["database", "asynchronous"]
+
+[features]
+default = ["protocol-ws", "protocol-http"]
+# Remote servers: `surrealdb://`, `surrealdb+ws(s)://`.
+protocol-ws = ["surrealdb/protocol-ws"]
+# Remote servers over HTTP: `surrealdb+http(s)://`.
+protocol-http = ["surrealdb/protocol-http"]
+# Embedded in-memory datastore: `surrealdb+mem://`. Compiles the whole engine.
+kv-mem = ["surrealdb/kv-mem"]
+
+[dependencies]
+rango-orm-core = { workspace = true }
+surrealdb = { version = "4.0.1", default-features = false, features = ["rustls"] }
+tokio = { version = "1", features = ["time"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+serde_json = "1"
+tracing = { version = "0.1", default-features = false, features = ["std", "attributes"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

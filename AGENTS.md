@@ -63,13 +63,14 @@ This is by design — Rango should be portable.
 
 | Crate | Role |
 |---|---|
-| `rango-orm-core` | DB-free: traits (`Model`, `FromRow`, `ModelValues`), schema types (`TableSchema`, `ColumnDef`, constraints), field types, `quote_ident`, the shared query builder (`Filter` + `Dialect`: filter state and every generated SELECT/aggregate/relation/M2M statement), Rust type → column type table (`type_map`) |
+| `rango-orm-core` | DB-free: traits (`Model`, `FromRow`, `ModelValues`), schema types (`TableSchema`, `ColumnDef`, constraints), field types, `quote_ident`, the shared query builder (`Filter` + `Dialect`: filter state and every generated SELECT/aggregate/relation/M2M statement; SurrealQL in `filter/surreal.rs`), Rust type → column type table (`type_map`), SurrealDB `DEFINE` statements (`surreal_schema`) |
 | `rango-orm-derive` | `#[derive(Model)]` proc-macro — generates `TableSchema` from struct fields |
 | `rango-orm-postgres` | PostgreSQL backend (sqlx): `ops/` (crud, bulk, raw), `query_builder/` (wraps core `Filter`: connection, binding, execution, row decoding), M2M, `PgQueryExt` |
 | `rango-orm-sqlite` | SQLite backend (sqlx), same layout as `rango-orm-postgres` |
 | `rango-orm-mysql` | MySQL 8.0+ / MariaDB 10.6+ backend (sqlx), common subset, no `RETURNING`, UUID as `BINARY(16)` |
-| `rango-orm` | Facade crate (lib name `rango`): re-exports core + derive + backends, selected by features (`postgres` default, `sqlite`, `mysql`) |
-| `rango-orm-cli` | `rango` binary: `commands/` (init, makemigrations, migrate, export, import) and `migration/` (scanner, snapshot, diff, renames, sql) |
+| `rango-orm-surrealdb` | SurrealDB 4 backend (official SDK, **BUSL-1.1**, opt-in only): `conn` (`SurrealPool`, `Conn`, `Scope`), `ops/`, `query_builder/`, M2M, `SurrealQueryExt`; PK = record key, FK = `record<t>` link |
+| `rango-orm` | Facade crate (lib name `rango`): re-exports core + derive + backends, selected by features (`postgres` default, `sqlite`, `mysql`, `surrealdb`, `surrealdb-mem`) |
+| `rango-orm-cli` | `rango` binary: `commands/` (init, makemigrations, migrate, export, import; `surreal.rs` behind feature `surrealdb`) and `migration/` (scanner, snapshot, diff, renames, sql, `sql/surql.rs`) |
 | `rango-tests` | Integration tests against real Postgres / SQLite |
 | `rango-bench` | Criterion benchmarks |
 
@@ -177,7 +178,7 @@ let active_users = User::filter(&pool)
 - Async streaming / cursors
 - Multi-DB joins across backends
 - Admin UI (that's Django's job, not ours)
-- ORM for NoSQL
+- ORM for NoSQL (SurrealDB is supported as `SCHEMAFULL` tables with records as keys, not as a document / graph API)
 
 ## Backends — feuille de route
 
@@ -186,6 +187,7 @@ let active_users = User::filter(&pool)
 | PostgreSQL | `rango-orm-postgres` | ✅ backend + CLI (default backend, PostgreSQL 14+) |
 | MySQL / MariaDB | `rango-orm-mysql` | ✅ backend + CLI (MySQL 8.0+, MariaDB 10.6+) |
 | SQLite | `rango-orm-sqlite` | ✅ (SQLite 3.35+, sqlx bundles 3.46) |
+| SurrealDB | `rango-orm-surrealdb` | ✅ backend + CLI, **opt-in** (SurrealDB 4; ws / wss / http / embedded `mem`). The SDK is BUSL-1.1: never a default dependency of any crate; `deny.toml` allows it per crate |
 | MSSQL | `rango-mssql` | 🔮 futur — SQLx a droppé le support MSSQL en 0.7, backend custom via `tiberius` |
 
 Note : PostgreSQL, MySQL, SQLite passent par SQLx. MSSQL nécessitera un backend séparé basé sur `tiberius`.
@@ -304,6 +306,7 @@ Known-CVE checklist (reviewed 2026-11-01) — keep new APIs out of these classes
 
 - `ForeignKey<M>` and `ManyToMany<M>` need `M` to have a UUID, integer or bigint primary key (`FieldUuid`, `FieldInt`, `FieldAutoInt`, `FieldBigInt`, `FieldAutoBigInt`). Text or composite keys cannot be relation targets; `rango makemigrations` refuses a ManyToMany to one.
 - SQLite has no decimal type: `FieldDecimal` is stored in a `NUMERIC` column, so a value with more than 15 significant digits is kept exactly as text, and one with up to 15 digits is a number again once read (scale restored from the column). Postgres and MySQL are exact.
+- SurrealDB: no interactive transactions over HTTP (`atomic` → `Error::Invalid`; single ops stay atomic as one `BEGIN … COMMIT` request); `FieldDate` / `FieldTime` are stored as `datetime` / `duration` (the SDK sends requests in plain `cbor`, which has no `date` / `time`); `NOT (col > x)` matches a `NONE` field (no three-valued logic); partial unique constraints are skipped; writing to an unmigrated table creates it schemaless; the embedded engine needs a large stack in debug builds.
 - A Postgres FK cycle is restorable because the FKs that close it are `DEFERRABLE`; databases created by an older `rango migrate` have them non-deferrable, so a NOT NULL cycle there still needs the constraints recreated (`ALTER TABLE ... ALTER CONSTRAINT ... DEFERRABLE`).
 
 ## Style

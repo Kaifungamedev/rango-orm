@@ -43,7 +43,7 @@ The full list, with the test behind each claim and what Rango does *not* protect
 | Job | What it checks |
 |---|---|
 | Check & Lint | `cargo fmt --check`, `cargo clippy -D warnings` |
-| Package, docs & MSRV | `cargo doc` with warnings as errors, `cargo publish --dry-run`, `cargo check` on MSRV Rust 1.94 |
+| Package, docs & MSRV | `cargo doc` with warnings as errors, `cargo publish --dry-run`, `cargo check` on MSRV Rust 1.95 |
 | Security audit | `cargo audit`, `cargo-deny` for licenses, sources, and advisories |
 | Unit tests | unit tests and the SQLite integration suite (in memory) |
 | Integration tests (PostgreSQL 14, 18) | integration and CLI migration tests on PostgreSQL 14 and 18 |

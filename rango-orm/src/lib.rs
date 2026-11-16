@@ -9,6 +9,8 @@
 //! rango-orm = { version = "0.2", default-features = false, features = ["sqlite"] }
 //! # or MySQL / MariaDB:
 //! rango-orm = { version = "0.2", default-features = false, features = ["mysql"] }
+//! # or SurrealDB 4 (BUSL-1.1 SDK; `surrealdb-mem` adds the embedded engine):
+//! rango-orm = { version = "0.2", default-features = false, features = ["surrealdb"] }
 //! ```
 //!
 //! Rango does not re-export `uuid` or `chrono`: add them to your own
@@ -174,12 +176,38 @@ pub async fn connect_mysql(url: &str) -> Result<MySqlPool> {
     rango_orm_mysql::connect(url).await
 }
 
+// ─── SurrealDB backend (feature `surrealdb`) ──────────────────────────────────
+
+#[cfg(feature = "surrealdb")]
+pub use rango_orm_surrealdb::SurrealPool;
+
+/// SurrealDB 4 ops, always reachable by this path whatever the other features.
+///
+/// The SurrealDB SDK is BUSL-1.1: see the `rango-orm-surrealdb` crate docs.
+#[cfg(feature = "surrealdb")]
+pub mod surrealdb {
+    pub use rango_orm_surrealdb::{
+        Conn, FromSurreal, M2M, QueryBuilder, RangoFilterExt, SelectAs, SurrealPool,
+        SurrealQueryExt, SurrealTransaction, WithRelated, all, atomic, atomic_retry, bulk_create,
+        bulk_update, bulk_upsert, connect, delete, get, get_or_create, insert, raw, raw_execute,
+        raw_scalar, transaction, update, update_or_create,
+    };
+}
+
+/// Connect to SurrealDB: `surrealdb://user:pass@host:8000/namespace/database`,
+/// `surrealdb+mem://` (feature `surrealdb-mem`), ...
+#[cfg(feature = "surrealdb")]
+pub async fn connect_surrealdb(url: &str) -> Result<SurrealPool> {
+    rango_orm_surrealdb::connect_url(url).await
+}
+
 // ─── Prelude ──────────────────────────────────────────────────────────────────
 
 /// Backend-agnostic items, the connect functions and pool types of every enabled
 /// backend, plus the ops (`insert`, `get`, `atomic`, `QueryBuilder`, ...) of exactly
-/// ONE backend: postgres if enabled, else sqlite, else mysql. The other backends'
-/// ops stay reachable as `rango::sqlite::*` / `rango::mysql::*` / `rango::postgres::*`.
+/// ONE backend: postgres if enabled, else sqlite, else mysql, else surrealdb. The other
+/// backends' ops stay reachable as `rango::sqlite::*` / `rango::mysql::*` /
+/// `rango::postgres::*` / `rango::surrealdb::*`.
 pub mod prelude {
     #[cfg(feature = "mysql")]
     pub use crate::{MySqlPool, connect_mysql};
@@ -187,6 +215,8 @@ pub mod prelude {
     pub use crate::{PgPool, connect_postgres};
     #[cfg(feature = "sqlite")]
     pub use crate::{SqlitePool, connect_sqlite, sqlite::SqliteQueryExt};
+    #[cfg(feature = "surrealdb")]
+    pub use crate::{SurrealPool, connect_surrealdb, surrealdb::SurrealQueryExt};
     pub use rango_orm_core::ModelHooks;
     pub use rango_orm_core::*;
     pub use rango_orm_derive::{Model, ModelMixin, Partial};
@@ -197,4 +227,9 @@ pub mod prelude {
     pub use crate::postgres::*;
     #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
     pub use crate::sqlite::*;
+    #[cfg(all(
+        feature = "surrealdb",
+        not(any(feature = "postgres", feature = "sqlite", feature = "mysql"))
+    ))]
+    pub use crate::surrealdb::*;
 }

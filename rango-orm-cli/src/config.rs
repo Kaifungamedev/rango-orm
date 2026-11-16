@@ -16,7 +16,7 @@ pub struct RangoConfig {
 #[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct DatabaseConfig {
-    /// Database backend: "sqlite", "postgres" or "mysql" (alias "mariadb"); default "postgres".
+    /// Database backend: "sqlite", "postgres", "mysql" (alias "mariadb") or "surrealdb"; default "postgres".
     #[serde(default = "default_backend")]
     pub backend: String,
 
@@ -58,6 +58,7 @@ impl DatabaseConfig {
         match self.backend.as_str() {
             "sqlite" => rango_orm_core::BackendKind::Sqlite,
             "mysql" | "mariadb" => rango_orm_core::BackendKind::Mysql,
+            "surrealdb" | "surreal" => rango_orm_core::BackendKind::Surreal,
             _ => rango_orm_core::BackendKind::Postgres,
         }
     }
@@ -70,6 +71,7 @@ pub fn backend_from_url(url: &str) -> Option<rango_orm_core::BackendKind> {
         "postgres" | "postgresql" => Some(Postgres),
         "mysql" | "mariadb" => Some(Mysql),
         "sqlite" => Some(Sqlite),
+        s if s == "surreal" || s.starts_with("surrealdb") => Some(Surreal),
         _ => None,
     }
 }
@@ -222,6 +224,8 @@ mod tests {
         assert_eq!(cfg.backend_for("mariadb://u@h/db"), Mysql);
         assert_eq!(cfg.backend_for("MySQL://u@h/db"), Mysql);
         assert_eq!(cfg.backend_for("sqlite://a.db"), Sqlite);
+        assert_eq!(cfg.backend_for("surrealdb://h/ns/db"), Surreal);
+        assert_eq!(cfg.backend_for("surrealdb+mem://"), Surreal);
         assert_eq!(
             cfg.backend_for("a.db"),
             Sqlite,

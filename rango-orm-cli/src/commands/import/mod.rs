@@ -83,7 +83,7 @@ pub(crate) enum OnConflict {
 
 /// A restore may run on a database `rango migrate` already prepared: ledger rows that exist
 /// are skipped, every other conflict still fails.
-fn conflict_for(table: &str, on_conflict: OnConflict) -> OnConflict {
+pub(crate) fn conflict_for(table: &str, on_conflict: OnConflict) -> OnConflict {
     if table == crate::commands::dump::MIGRATIONS_TABLE && on_conflict == OnConflict::Fail {
         OnConflict::Skip
     } else {
@@ -106,6 +106,9 @@ pub(crate) async fn insert_rows(
         BackendKind::Mysql => {
             mysql::import_mysql(database_url, rows, table, on_conflict, setup_sql).await
         }
+        BackendKind::Surreal => {
+            import_surreal(database_url, rows, table, on_conflict, setup_sql).await
+        }
         _ => postgres::import_postgres(database_url, rows, table, on_conflict, setup_sql).await,
     }
 }
@@ -126,8 +129,33 @@ where
     Ok(())
 }
 
+#[cfg(feature = "surrealdb")]
+async fn import_surreal(
+    database_url: &str,
+    rows: &[serde_json::Map<String, serde_json::Value>],
+    table: Option<&str>,
+    on_conflict: OnConflict,
+    setup_sql: Option<&str>,
+) -> Result<usize> {
+    let pool = rango_orm_surrealdb::connect_url(database_url)
+        .await
+        .context("Failed to connect to SurrealDB")?;
+    crate::commands::surreal::import_rows(&pool, rows, table, on_conflict, setup_sql).await
+}
+
+#[cfg(not(feature = "surrealdb"))]
+async fn import_surreal(
+    _: &str,
+    _: &[serde_json::Map<String, serde_json::Value>],
+    _: Option<&str>,
+    _: OnConflict,
+    _: Option<&str>,
+) -> Result<usize> {
+    bail!(crate::commands::SURREAL_DISABLED)
+}
+
 /// Group rows by their `__table` field (or "default" if not present).
-fn group_by_table<'a>(
+pub(crate) fn group_by_table<'a>(
     rows: &'a [serde_json::Map<String, serde_json::Value>],
     default_table: Option<&str>,
 ) -> std::collections::HashMap<String, Vec<&'a serde_json::Map<String, serde_json::Value>>> {
@@ -160,7 +188,7 @@ pub(crate) use order::order_by_dependencies;
 pub(crate) use postgres::{binary_columns_postgres, columns_of_type_postgres, fk_edges_postgres};
 
 /// Columns of a row to insert: every key except the `__table` marker.
-fn insert_columns(row: &serde_json::Map<String, serde_json::Value>) -> Vec<&str> {
+pub(crate) fn insert_columns(row: &serde_json::Map<String, serde_json::Value>) -> Vec<&str> {
     row.keys()
         .filter(|k| *k != "__table")
         .map(String::as_str)

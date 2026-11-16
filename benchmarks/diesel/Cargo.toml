@@ -5,8 +5,8 @@ edition = "2024"
 publish = false
 
 [dev-dependencies]
-diesel = { version = "2.3", features = ["postgres_backend", "uuid", "chrono"], default-features = false }
-diesel-async = { version = "0.9", features = ["postgres", "deadpool"] }
+diesel = { version = "2.4", features = ["postgres_backend", "uuid", "chrono"], default-features = false }
+diesel-async = { version = "0.10", features = ["postgres", "deadpool"] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"

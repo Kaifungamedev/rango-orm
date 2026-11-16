@@ -6,7 +6,7 @@ Rango is configured via `rango.toml` at the root of your project.
 
 ```toml
 [database]
-backend = "sqlite"   # "sqlite", "postgres", "mysql" or "mariadb"
+backend = "sqlite"   # "sqlite", "postgres", "mysql", "mariadb" or "surrealdb"
 # url is optional here — prefer DATABASE_URL env var for credentials
 
 [models]
@@ -42,8 +42,9 @@ DATABASE_URL=sqlite://db.sqlite3 rango migrate
 | `postgres` | `postgres://user:pass@host:5432/db` | Also accepts `postgresql://` |
 | `mysql` | `mysql://user:pass@host:3306/db` | MySQL 8.0+ |
 | `mariadb` | `mariadb://user:pass@host:3306/db` | MariaDB 10.6+; same driver as `mysql` |
+| `surrealdb` | `surrealdb://user:pass@host:8000/namespace/database` | SurrealDB 4 (opt-in feature); also `surrealdb+ws`, `+wss`, `+http`, `+https`, `+mem`. See [SurrealDB](../backends/surrealdb.md) |
 
-When a command gets a database URL (`-d` or `DATABASE_URL`), the backend is taken from its scheme (`postgres` / `postgresql`, `mysql` / `mariadb`, `sqlite`), whatever `backend` says. `backend` is the fallback for a URL with another form, and decides which SQL `makemigrations` writes.
+When a command gets a database URL (`-d` or `DATABASE_URL`), the backend is taken from its scheme (`postgres` / `postgresql`, `mysql` / `mariadb`, `sqlite`, `surrealdb` / `surrealdb+*`), whatever `backend` says. `backend` is the fallback for a URL with another form, and decides which SQL `makemigrations` writes.
 
 ## Table names
 

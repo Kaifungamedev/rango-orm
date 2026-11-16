@@ -17,6 +17,7 @@ pub async fn run(database_url: &str, migrations_dir: &str, after_connect: &[Stri
         match backend {
             BackendKind::Sqlite => "sqlite",
             BackendKind::Mysql => "mysql",
+            BackendKind::Surreal => "surrealdb",
             _ => "postgres",
         }
     );
@@ -24,6 +25,7 @@ pub async fn run(database_url: &str, migrations_dir: &str, after_connect: &[Stri
     match backend {
         BackendKind::Sqlite => run_sqlite(database_url, migrations_dir).await,
         BackendKind::Mysql => run_mysql(database_url, migrations_dir).await,
+        BackendKind::Surreal => run_surreal(database_url, migrations_dir, after_connect).await,
         _ => run_postgres(database_url, migrations_dir, after_connect).await,
     }
 }
@@ -170,9 +172,40 @@ async fn run_mysql(database_url: &str, migrations_dir: &str) -> Result<()> {
     finish(result, unlock, "Failed to release the migration lock")
 }
 
+/// Extension of migration files: `.surql` for SurrealDB, `.sql` elsewhere.
+pub(crate) fn migration_extension(backend: BackendKind) -> &'static str {
+    if backend == BackendKind::Surreal {
+        "surql"
+    } else {
+        "sql"
+    }
+}
+
+// ─── SurrealDB ────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "surrealdb")]
+async fn run_surreal(
+    database_url: &str,
+    migrations_dir: &str,
+    after_connect: &[String],
+) -> Result<()> {
+    let mut config = rango_orm_core::DatabaseConfig::from_url(database_url);
+    config.after_connect = after_connect.to_vec();
+    let pool = rango_orm_surrealdb::connect(&config)
+        .await
+        .context("Failed to connect to SurrealDB")?;
+    crate::commands::surreal::apply_migrations(&pool, migrations_dir).await
+}
+
+#[cfg(not(feature = "surrealdb"))]
+async fn run_surreal(_: &str, _: &str, _: &[String]) -> Result<()> {
+    bail!(crate::commands::SURREAL_DISABLED)
+}
+
 /// `CREATE TABLE IF NOT EXISTS` for the migration tracking table (also used by `restore`).
 pub(crate) fn tracking_table_ddl(backend: BackendKind) -> &'static str {
     match backend {
+        BackendKind::Surreal => rango_orm_core::surreal_schema::TRACKING_TABLE_DDL,
         BackendKind::Sqlite => {
             "CREATE TABLE IF NOT EXISTS _rango_migrations (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,7 +264,7 @@ where
         .context("Failed to fetch applied migrations")?;
     let applied: HashSet<String> = rows.into_iter().collect();
 
-    let pending = pending_migrations(migrations_dir, &applied)?;
+    let pending = pending_migrations(migrations_dir, &applied, "sql")?;
     if pending.is_empty() {
         println!("✅ Nothing to apply — database is up to date.");
         return Ok(());
@@ -270,11 +303,12 @@ where
     Ok(())
 }
 
-fn pending_migrations(
+pub(crate) fn pending_migrations(
     migrations_dir: &str,
     applied: &HashSet<String>,
+    ext: &str,
 ) -> Result<Vec<(String, String)>> {
-    let files = collect_migration_files(migrations_dir)?;
+    let files = collect_migration_files(migrations_dir, ext)?;
     let mut pending = Vec::new();
 
     for file in files {
@@ -291,13 +325,13 @@ fn pending_migrations(
     Ok(pending)
 }
 
-fn collect_migration_files(dir: &str) -> Result<Vec<PathBuf>> {
+fn collect_migration_files(dir: &str, ext: &str) -> Result<Vec<PathBuf>> {
     let entries =
         fs::read_dir(dir).with_context(|| format!("Cannot read migrations directory: {}", dir))?;
     let mut files: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().map(|x| x == "sql").unwrap_or(false))
+        .filter(|p| p.extension().map(|x| x == ext).unwrap_or(false))
         .collect();
     files.sort();
     Ok(files)
@@ -326,7 +360,7 @@ mod tests {
         fs::write(dir.join("notes.txt"), "not a migration").unwrap();
 
         let applied = HashSet::from(["0001_a.sql".to_string()]);
-        let pending = pending_migrations(dir.to_str().unwrap(), &applied).unwrap();
+        let pending = pending_migrations(dir.to_str().unwrap(), &applied, "sql").unwrap();
 
         assert_eq!(
             pending,

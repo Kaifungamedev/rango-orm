@@ -17,6 +17,10 @@ rango-orm = { version = "0.2", default-features = false, features = ["sqlite"] }
 # MySQL 8.0+ / MariaDB 10.6+ backend
 rango-orm = { version = "0.2", default-features = false, features = ["mysql"] }
 
+# SurrealDB 4 backend (opt-in: the SurrealDB SDK is BUSL-1.1, see Backends → SurrealDB).
+# `surrealdb-mem` adds the embedded in-memory engine.
+rango-orm = { version = "0.2", default-features = false, features = ["surrealdb"] }
+
 tokio = { version = "1", features = ["full"] }
 
 # Rango does not re-export these: add them yourself to build
@@ -30,9 +34,9 @@ serde_json = "1"
 
 ### Several backends at once
 
-You can enable more than one feature. `use rango::prelude::*` then holds the backend-agnostic items (models, field types, `Error`, ...), the `connect_*` functions and the pool types of every enabled backend, plus the ops (`insert`, `get`, `atomic`, `QueryBuilder`, ...) of **one** backend, chosen by priority: PostgreSQL if enabled, else SQLite, else MySQL.
+You can enable more than one feature. `use rango::prelude::*` then holds the backend-agnostic items (models, field types, `Error`, ...), the `connect_*` functions and the pool types of every enabled backend, plus the ops (`insert`, `get`, `atomic`, `QueryBuilder`, ...) of **one** backend, chosen by priority: PostgreSQL if enabled, else SQLite, else MySQL, else SurrealDB.
 
-The other backends' ops are always reachable by path: `rango::postgres::*`, `rango::sqlite::*`, `rango::mysql::*`.
+The other backends' ops are always reachable by path: `rango::postgres::*`, `rango::sqlite::*`, `rango::mysql::*`, `rango::surrealdb::*`.
 
 ```rust
 use rango::prelude::*; // ops from Postgres (default feature is on)
@@ -65,7 +69,7 @@ migrations/       ← SQL migration files (generated)
 
 ## Requirements
 
-- Rust 1.94+ (edition 2024)
+- Rust 1.95+ (edition 2024)
 - A database server for PostgreSQL / MySQL / MariaDB (SQLite needs nothing extra)
 
 ### Supported database versions
@@ -76,3 +80,4 @@ migrations/       ← SQL migration files (generated)
 | MySQL | 8.0+ | 8.0, 8.4 | oldest version tested |
 | MariaDB | 10.6+ | 10.6, 11.4 | oldest version tested |
 | SQLite | 3.35+ | bundled 3.46 | `RETURNING` (3.35), `UPDATE … FROM` (3.33); sqlx bundles SQLite, so nothing to install |
+| SurrealDB | 4.0+ | embedded 4.0.1 | sequences, `REFERENCE ON DELETE`; opt-in feature, `cargo install rango-orm-cli --features surrealdb` for the CLI |

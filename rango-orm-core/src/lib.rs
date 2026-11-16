@@ -16,6 +16,8 @@ pub mod related;
 pub mod row;
 pub mod schema;
 #[doc(hidden)]
+pub mod surreal_schema;
+#[doc(hidden)]
 pub mod type_map;
 
 pub use column::{
@@ -45,7 +47,12 @@ pub use model::{
 };
 #[doc(hidden)]
 pub use query::insert_values;
-pub use query::{Filterable, ModelValues, SqlValue, ToSqlValue, quote_ident, quote_ident_mysql};
+pub use query::{
+    Filterable, ModelValues, SqlValue, ToSqlValue, quote_ident, quote_ident_mysql,
+    quote_ident_surreal,
+};
+#[doc(hidden)]
+pub use query::{quote_str_surreal, surreal_sequence_name};
 pub use related::WithRelated;
 pub use row::{FromRow, Partial, RangoRow, RowError};
 pub use rust_decimal::Decimal;

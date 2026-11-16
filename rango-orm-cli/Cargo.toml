@@ -22,6 +22,10 @@ rango-orm-core     = { workspace = true }
 rango-orm-postgres = { workspace = true }
 rango-orm-sqlite   = { workspace = true }
 rango-orm-mysql    = { workspace = true }
+# BUSL-1.1 SurrealDB SDK: only with `--features surrealdb`.
+rango-orm-surrealdb = { workspace = true, optional = true, features = ["protocol-ws", "protocol-http"] }
+uuid = { version = "1", optional = true }
+chrono = { version = "0.4", optional = true }
 
 clap = { version = "4", features = ["derive", "env"] }
 syn = { version = "3", features = ["full", "visit"] }
@@ -37,6 +41,12 @@ flate2 = "1"
 base64 = "0.23"
 
 [features]
+# `rango migrate` / `export` / `import` / `dump` against SurrealDB 4. Links the BUSL-1.1
+# SurrealDB SDK, so it is opt-in: `cargo install rango-orm-cli --features surrealdb`.
+# (`makemigrations` writes SurrealQL without it.)
+surrealdb = ["dep:rango-orm-surrealdb", "dep:uuid", "dep:chrono"]
+# Plus the embedded engine, for the in-process tests (`just test-surrealdb`).
+surrealdb-mem = ["surrealdb", "rango-orm-surrealdb/kv-mem"]
 integration = []
 integration-mysql = []
 

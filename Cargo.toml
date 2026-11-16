@@ -8,13 +8,14 @@ members = [
     "rango-orm-postgres",
     "rango-orm-sqlite",
     "rango-orm-mysql",
+    "rango-orm-surrealdb",
     "rango-tests",
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.2.0"
-rust-version = "1.94"
+rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 authors = ["Ikarys"]
 repository = "https://github.com/ikarys/rango-orm"
@@ -26,3 +27,4 @@ rango-orm-derive = { path = "rango-orm-derive", version = "=0.2.0" }
 rango-orm-postgres = { path = "rango-orm-postgres", version = "=0.2.0" }
 rango-orm-sqlite = { path = "rango-orm-sqlite", version = "=0.2.0" }
 rango-orm-mysql = { path = "rango-orm-mysql", version = "=0.2.0" }
+rango-orm-surrealdb = { path = "rango-orm-surrealdb", version = "=0.2.0", default-features = false }

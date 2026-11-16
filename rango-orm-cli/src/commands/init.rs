@@ -7,8 +7,9 @@ pub fn run(backend: &str) -> Result<()> {
         "postgres" => "postgres://user:password@localhost:5432/mydb",
         "sqlite" => "sqlite://db.sqlite3",
         "mysql" | "mariadb" => "mysql://user:password@localhost:3306/mydb",
+        "surrealdb" | "surreal" => "surrealdb://user:password@localhost:8000/namespace/database",
         other => bail!(
-            "Unknown backend '{}'. Use 'sqlite', 'postgres' or 'mysql'.",
+            "Unknown backend '{}'. Use 'sqlite', 'postgres', 'mysql' or 'surrealdb'.",
             other
         ),
     };

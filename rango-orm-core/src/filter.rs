@@ -9,6 +9,9 @@ use crate::{
 use std::any::TypeId;
 use std::marker::PhantomData;
 
+mod surreal;
+use surreal::SurCol;
+
 /// Rows returned by a query without an explicit `limit` / `unlimited()`.
 pub const DEFAULT_QUERY_LIMIT: i64 = 1000;
 
@@ -18,21 +21,25 @@ pub enum Dialect {
     Postgres,
     Sqlite,
     Mysql,
+    /// SurrealQL (SurrealDB 4): `$pN` parameters, records as primary / foreign keys.
+    Surreal,
 }
 
 impl Dialect {
-    /// Quote an identifier: backticks on MySQL, `"` elsewhere.
+    /// Quote an identifier: backticks on MySQL and SurrealDB, `"` elsewhere.
     pub fn quote_ident(self, ident: &str) -> String {
         match self {
             Dialect::Mysql => crate::quote_ident_mysql(ident),
+            Dialect::Surreal => crate::quote_ident_surreal(ident),
             _ => crate::quote_ident(ident),
         }
     }
 
-    /// The next bind placeholder: `$n` on Postgres, `?` elsewhere.
+    /// The next bind placeholder: `$n` on Postgres, `$pn` on SurrealDB, `?` elsewhere.
     fn placeholder(self, idx: &mut usize) -> String {
         let p = match self {
             Dialect::Postgres => format!("${idx}"),
+            Dialect::Surreal => format!("$p{idx}"),
             _ => "?".to_string(),
         };
         *idx += 1;
@@ -71,6 +78,8 @@ struct Condition {
     op: Op,
     value: Option<SqlValue>,
     values: Option<Vec<SqlValue>>, // for IN
+    /// SurrealDB only: how the column is stored (record key, record link, nullable).
+    meta: SurCol,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +105,8 @@ struct Subquery {
     head: String,
     /// True when `head` already ends with a WHERE clause (correlated EXISTS).
     has_where: bool,
+    /// Closes `head`: `)` in SQL, ` LIMIT 1) > 0` for a SurrealQL `EXISTS`.
+    tail: &'static str,
     conditions: Vec<ConditionGroup>,
     raw_conditions: Vec<(String, Vec<SqlValue>)>,
 }
@@ -134,6 +145,10 @@ pub struct PrefetchSpec {
     pub from_row: FromRowFn,
     /// Collects `Vec<Box<dyn Any>>` into a `Box<dyn Any>` containing `Vec<R>`.
     pub collect_vec: CollectVecFn,
+    /// SurrealDB M2M only: R's fields come back nested in this object field of each row.
+    pub nested: Option<&'static str>,
+    /// R's primary key column (read from the record `id` on SurrealDB).
+    pub pk_col: &'static str,
 }
 
 /// Filters, ordering, pagination and relation specs of one query, plus the SQL they render to.
@@ -220,6 +235,11 @@ impl<M: Model + ModelValues> Filter<M> {
         values: Option<Vec<SqlValue>>,
     ) -> Self {
         self.check_col::<M>(col);
+        let meta = if self.dialect == Dialect::Surreal {
+            SurCol::of::<M>(col)
+        } else {
+            SurCol::default()
+        };
         let connector = std::mem::replace(&mut self.next_connector, Connector::And);
         self.conditions.push(ConditionGroup {
             node: ConditionNode::Single(Condition {
@@ -227,6 +247,7 @@ impl<M: Model + ModelValues> Filter<M> {
                 op,
                 value,
                 values,
+                meta,
             }),
             connector,
         });
@@ -272,7 +293,7 @@ impl<M: Model + ModelValues> Filter<M> {
         self = self.order_by(col);
         let last = self.order_by.pop().expect("order_by pushed one entry");
         // Drop an earlier `order_by` on the same column: no duplicate ORDER BY term.
-        let prefix = format!("{} ", self.q(col.trim_start_matches('-')));
+        let prefix = format!("{} ", self.order_ident(col.trim_start_matches('-')));
         self.order_by.retain(|o| !o.starts_with(&prefix));
         self.order_by.insert(0, last);
         self
@@ -347,6 +368,16 @@ impl<M: Model + ModelValues> Filter<M> {
         fk_col: impl ForeignKeyRef<R, M>,
         sub: impl FnOnce(Filter<R>) -> Filter<R>,
     ) -> Self {
+        if self.dialect == Dialect::Surreal {
+            // `$parent` is the outer row, whatever the tables: no alias needed.
+            let head = format!(
+                "count(SELECT 1 FROM {} WHERE {} = $parent.id",
+                self.q(R::table_name()),
+                self.q(fk_col.column_name()),
+            );
+            let sub = sub(Filter::new(self.dialect));
+            return self.add_subquery(head, true, " LIMIT 1) > 0", sub);
+        }
         let outer = self.q(M::table_name());
         // Self-referencing (e.g. parent/child on one table): alias the inner table,
         // otherwise `"t"."id"` would resolve to the inner row.
@@ -363,7 +394,7 @@ impl<M: Model + ModelValues> Filter<M> {
             self.q(M::pk_column()),
         );
         let sub = sub(Filter::new(self.dialect));
-        self.add_subquery(head, true, sub)
+        self.add_subquery(head, true, ")", sub)
     }
 
     pub fn in_subquery<R: Model + ModelValues>(
@@ -374,6 +405,11 @@ impl<M: Model + ModelValues> Filter<M> {
     ) -> Self {
         self.check_col::<M>(col.column_name());
         self.check_col::<R>(sub_col.column_name());
+        if self.dialect == Dialect::Surreal {
+            let head = surreal::in_subquery_head::<M, R>(col.column_name(), sub_col.column_name());
+            let sub = sub(Filter::new(self.dialect));
+            return self.add_subquery(head, false, ")", sub);
+        }
         let head = format!(
             "{} IN (SELECT {} FROM {}",
             self.q(col.column_name()),
@@ -381,10 +417,16 @@ impl<M: Model + ModelValues> Filter<M> {
             self.q(R::table_name()),
         );
         let sub = sub(Filter::new(self.dialect));
-        self.add_subquery(head, false, sub)
+        self.add_subquery(head, false, ")", sub)
     }
 
-    fn add_subquery<R>(mut self, head: String, has_where: bool, sub: Filter<R>) -> Self {
+    fn add_subquery<R>(
+        mut self,
+        head: String,
+        has_where: bool,
+        tail: &'static str,
+        sub: Filter<R>,
+    ) -> Self {
         if self.invalid.is_none() {
             self.invalid = sub.invalid;
         }
@@ -393,6 +435,7 @@ impl<M: Model + ModelValues> Filter<M> {
             node: ConditionNode::Subquery(Box::new(Subquery {
                 head,
                 has_where,
+                tail,
                 conditions: sub.conditions,
                 raw_conditions: sub.raw_conditions,
             })),
@@ -406,8 +449,18 @@ impl<M: Model + ModelValues> Filter<M> {
         let (name, descending) = col.order_parts();
         self.check_col::<M>(name);
         let dir = if descending { "DESC" } else { "ASC" };
-        self.order_by.push(format!("{} {dir}", self.q(name)));
+        self.order_by
+            .push(format!("{} {dir}", self.order_ident(name)));
         self
+    }
+
+    /// The quoted column of an ORDER BY term. On SurrealDB the primary key is the record `id`.
+    fn order_ident(&self, name: &str) -> String {
+        if self.dialect == Dialect::Surreal && name == M::pk_column() {
+            "id".to_string()
+        } else {
+            self.q(name)
+        }
     }
 
     /// Set a LIMIT and mark it explicit (suppresses the automatic row cap).
@@ -447,7 +500,19 @@ impl<M: Model + ModelValues> Filter<M> {
     where
         R: Model + ModelValues + FromRow + Send + Sync + 'static,
     {
+        let surreal = self.dialect == Dialect::Surreal;
         let (select, key_col) = match target.prefetch_kind() {
+            PrefetchKind::ManyToMany if surreal => {
+                // The pivot links records: R comes back nested in `__t`.
+                let (pivot, from_col, to_col) = m2m_pivot(M::table_name(), R::table_name());
+                let select = format!(
+                    "SELECT {from} AS __m2m_key, {to}.* AS __t FROM {pivot} WHERE {from}",
+                    from = self.q(&from_col),
+                    to = self.q(&to_col),
+                    pivot = self.q(&pivot),
+                );
+                (select, "__m2m_key".to_string())
+            }
             PrefetchKind::ReverseFk(col) => (
                 format!(
                     "SELECT * FROM {} WHERE {}",
@@ -472,12 +537,15 @@ impl<M: Model + ModelValues> Filter<M> {
                 (select, "__m2m_key".to_string())
             }
         };
+        let nested = (surreal && key_col_is_m2m(&key_col)).then_some("__t");
         self.prefetch_related.push(PrefetchSpec {
             select,
             key_col,
             vec_type_id: TypeId::of::<Vec<R>>(),
             from_row: erased_from_row::<R>,
             collect_vec: collect_vec_erased::<R>,
+            nested,
+            pk_col: R::pk_column(),
         });
         self
     }
@@ -497,13 +565,14 @@ impl<M: Model + ModelValues> Filter<M> {
                 } else {
                     "ASC"
                 };
-                format!("{} {dir}", self.q(&o.column))
+                format!("{} {dir}", self.order_ident(&o.column))
             })
             .collect()
     }
 
     /// `WHERE ...` (empty when there is no filter) and its binds, in placeholder order.
     pub fn build_where(&self) -> (String, Vec<SqlValue>) {
+        // (SurrealDB renders through the same tree: `conditions_sql` dispatches per dialect.)
         let mut binds = Vec::new();
         let body = self.where_body(&self.conditions, &self.raw_conditions, &mut binds, &mut 1);
         if body.is_empty() {
@@ -519,6 +588,9 @@ impl<M: Model + ModelValues> Filter<M> {
         binds: &mut Vec<SqlValue>,
         idx: &mut usize,
     ) -> String {
+        if self.dialect == Dialect::Surreal {
+            return self.surreal_conditions(groups, binds, idx);
+        }
         let mut parts = Vec::new();
         for (i, cg) in groups.iter().enumerate() {
             let expr = match &cg.node {
@@ -526,14 +598,7 @@ impl<M: Model + ModelValues> Filter<M> {
                 ConditionNode::Group(inner) => {
                     format!("({})", self.conditions_sql(inner, binds, idx))
                 }
-                ConditionNode::Subquery(sub) => {
-                    let body = self.where_body(&sub.conditions, &sub.raw_conditions, binds, idx);
-                    match (body.is_empty(), sub.has_where) {
-                        (true, _) => format!("{})", sub.head),
-                        (false, true) => format!("{} AND ({}))", sub.head, body),
-                        (false, false) => format!("{} WHERE {})", sub.head, body),
-                    }
-                }
+                ConditionNode::Subquery(sub) => self.subquery_sql(sub, binds, idx),
             };
             parts.push(if i == 0 {
                 match &cg.connector {
@@ -553,6 +618,16 @@ impl<M: Model + ModelValues> Filter<M> {
             });
         }
         parts.join(" ")
+    }
+
+    fn subquery_sql(&self, sub: &Subquery, binds: &mut Vec<SqlValue>, idx: &mut usize) -> String {
+        let body = self.where_body(&sub.conditions, &sub.raw_conditions, binds, idx);
+        let (head, tail) = (&sub.head, sub.tail);
+        match (body.is_empty(), sub.has_where) {
+            (true, _) => format!("{head}{tail}"),
+            (false, true) => format!("{head} AND ({body}){tail}"),
+            (false, false) => format!("{head} WHERE {body}{tail}"),
+        }
     }
 
     /// Filters joined with AND, without the `WHERE` keyword. Empty when there is no filter.
@@ -577,7 +652,7 @@ impl<M: Model + ModelValues> Filter<M> {
             let mut fragment = sql.clone();
             for bind in raw_binds {
                 let p = self.dialect.placeholder(idx);
-                if self.dialect == Dialect::Postgres {
+                if matches!(self.dialect, Dialect::Postgres | Dialect::Surreal) {
                     fragment = fragment.replacen("$__", &p, 1);
                 }
                 binds.push(bind.clone());
@@ -632,6 +707,9 @@ impl<M: Model + ModelValues> Filter<M> {
 
     /// `SELECT <cols> FROM t WHERE .. ORDER BY .. LIMIT .. OFFSET ..`, plus the ORDER BY clause alone.
     fn plain_select(&self, cols: &str) -> (String, String, Vec<SqlValue>) {
+        if self.dialect == Dialect::Surreal {
+            return self.surreal_select(cols);
+        }
         let (where_clause, binds) = self.build_where();
         let mut sql = format!("SELECT {cols} FROM {}", self.q(M::table_name()));
         if !where_clause.is_empty() {
@@ -659,6 +737,10 @@ impl<M: Model + ModelValues> Filter<M> {
 
     /// `SELECT` of the given plain column names, no relations.
     pub fn values_sql(&self, cols: &[&str]) -> (String, Vec<SqlValue>) {
+        if self.dialect == Dialect::Surreal {
+            let (sql, _, binds) = self.plain_select(&surreal::projection::<M>(cols));
+            return (sql, binds);
+        }
         let list: Vec<String> = cols.iter().map(|c| self.q(c)).collect();
         let (sql, _, binds) = self.plain_select(&list.join(", "));
         (sql, binds)
@@ -671,6 +753,9 @@ impl<M: Model + ModelValues> Filter<M> {
 
     /// `select_sql` with an explicit column list (already quoted) instead of `*`.
     pub fn select_sql_cols(&self, cols: &str) -> (String, Vec<SqlValue>) {
+        if self.dialect == Dialect::Surreal {
+            return self.surreal_select_related(cols);
+        }
         let (sql, order_by, binds) = self.plain_select(cols);
         if self.select_related.is_empty() {
             return (sql, binds);
@@ -707,17 +792,29 @@ impl<M: Model + ModelValues> Filter<M> {
 
     /// `SELECT COUNT(*) FROM t WHERE ..`
     pub fn count_sql(&self) -> (String, Vec<SqlValue>) {
+        if self.dialect == Dialect::Surreal {
+            return self.surreal_count();
+        }
         self.aggregate_expr_sql("COUNT(*)".to_string())
     }
 
     /// `SELECT EXISTS(SELECT 1 FROM t WHERE ..)`: stops at the first matching row.
     pub fn exists_sql(&self) -> (String, Vec<SqlValue>) {
+        if self.dialect == Dialect::Surreal {
+            return self.surreal_exists();
+        }
         let (inner, binds) = self.aggregate_expr_sql("1".to_string());
         (format!("SELECT EXISTS({inner})"), binds)
     }
 
     /// `SELECT <func>(col) FROM t WHERE ..` for `SUM`, `AVG`, `MIN`, `MAX` (floats for `SUM` / `AVG`).
+    ///
+    /// SurrealDB: `SUM` / `AVG` select `{n, v}` (row count and value, `n = 0` means no value),
+    /// `MIN` / `MAX` the first value in order (`SELECT VALUE`, any comparable type).
     pub fn aggregate_sql(&self, func: &str, col: &str) -> (String, Vec<SqlValue>) {
+        if self.dialect == Dialect::Surreal {
+            return self.surreal_aggregate(func, col);
+        }
         self.aggregate_expr_sql(self.dialect.aggregate(func, &self.q(col)))
     }
 
@@ -730,6 +827,10 @@ impl<M: Model + ModelValues> Filter<M> {
         }
         (sql, binds)
     }
+}
+
+fn key_col_is_m2m(key_col: &str) -> bool {
+    key_col == "__m2m_key"
 }
 
 /// Expands, inside a backend's `query_builder`, the chainable filter methods of

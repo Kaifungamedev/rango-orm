@@ -240,8 +240,21 @@ impl M2mSql {
     fn ph(&self, n: usize) -> String {
         match self.dialect {
             crate::Dialect::Postgres => format!("${n}"),
+            // SurrealDB: the bound keys name records of the two tables.
+            crate::Dialect::Surreal => {
+                let table = if n == 1 {
+                    &self.from_table
+                } else {
+                    &self.to_table
+                };
+                format!("type::record({}, $p{n})", crate::quote_str_surreal(table))
+            }
             _ => "?".to_owned(),
         }
+    }
+
+    fn surreal(&self) -> bool {
+        self.dialect == crate::Dialect::Surreal
     }
 
     /// Idempotent insert of a `(from, to)` pair.
@@ -253,6 +266,11 @@ impl M2mSql {
         );
         let (p1, p2) = (self.ph(1), self.ph(2));
         match self.dialect {
+            // The unique index on (from, to) raises the duplicate; the update is a no-op.
+            crate::Dialect::Surreal => format!(
+                "INSERT INTO {pivot} ({from}, {to}) VALUES ({p1}, {p2}) \
+                 ON DUPLICATE KEY UPDATE {from} = $input.{from} RETURN NONE"
+            ),
             // ON DUPLICATE KEY UPDATE, not INSERT IGNORE, to avoid silencing FK and other errors.
             crate::Dialect::Mysql => format!(
                 "INSERT INTO {pivot} ({from}, {to}) VALUES ({p1}, {p2}) \
@@ -266,8 +284,9 @@ impl M2mSql {
 
     /// Delete every pair of one `from` id.
     pub fn clear(&self) -> String {
+        let from = if self.surreal() { "" } else { "FROM " };
         format!(
-            "DELETE FROM {} WHERE {} = {}",
+            "DELETE {from}{} WHERE {} = {}",
             self.q(&self.pivot),
             self.q(&self.from_col),
             self.ph(1)
@@ -276,8 +295,9 @@ impl M2mSql {
 
     /// Delete one `(from, to)` pair.
     pub fn remove(&self) -> String {
+        let from = if self.surreal() { "" } else { "FROM " };
         format!(
-            "DELETE FROM {} WHERE {} = {} AND {} = {}",
+            "DELETE {from}{} WHERE {} = {} AND {} = {}",
             self.q(&self.pivot),
             self.q(&self.from_col),
             self.ph(1),
@@ -288,8 +308,13 @@ impl M2mSql {
 
     /// Does the `(from, to)` pair exist.
     pub fn exists(&self) -> String {
+        let select = if self.surreal() {
+            "SELECT VALUE id"
+        } else {
+            "SELECT 1"
+        };
         format!(
-            "SELECT 1 FROM {} WHERE {} = {} AND {} = {} LIMIT 1",
+            "{select} FROM {} WHERE {} = {} AND {} = {} LIMIT 1",
             self.q(&self.pivot),
             self.q(&self.from_col),
             self.ph(1),
@@ -299,7 +324,17 @@ impl M2mSql {
     }
 
     /// The `to` rows of one `from` id (bind: from id).
+    /// SurrealDB: one `to` object per pair (`NONE` for a dangling link).
     pub fn all(&self, to_pk: &str) -> String {
+        if self.surreal() {
+            return format!(
+                "SELECT VALUE {to}.* FROM {pivot} WHERE {from} = {p1}",
+                to = self.q(&self.to_col),
+                pivot = self.q(&self.pivot),
+                from = self.q(&self.from_col),
+                p1 = self.ph(1),
+            );
+        }
         format!(
             r#"SELECT t.* FROM {to_table} t
                INNER JOIN {pivot} p ON t.{to_pk} = p.{to_col}
@@ -315,6 +350,15 @@ impl M2mSql {
 
     /// The `from` rows of one `to` id (bind: to id).
     pub fn reverse(&self, from_pk: &str) -> String {
+        if self.surreal() {
+            return format!(
+                "SELECT VALUE {from}.* FROM {pivot} WHERE {to} = type::record({table}, $p1)",
+                from = self.q(&self.from_col),
+                pivot = self.q(&self.pivot),
+                to = self.q(&self.to_col),
+                table = crate::quote_str_surreal(&self.to_table),
+            );
+        }
         format!(
             r#"SELECT f.* FROM {from_table} f
                INNER JOIN {pivot} p ON f.{from_pk} = p.{from_col}
@@ -350,6 +394,21 @@ mod m2m_sql_tests {
             my.insert(),
             "INSERT INTO `post_tag` (`post_id`, `tag_id`) VALUES (?, ?) \
              ON DUPLICATE KEY UPDATE `post_id` = `post_id`"
+        );
+        let sur = M2mSql::new(Dialect::Surreal, "post", "tag");
+        assert_eq!(
+            sur.insert(),
+            "INSERT INTO `post_tag` (`post_id`, `tag_id`) VALUES \
+             (type::record('post', $p1), type::record('tag', $p2)) \
+             ON DUPLICATE KEY UPDATE `post_id` = $input.`post_id` RETURN NONE"
+        );
+        assert_eq!(
+            sur.clear(),
+            "DELETE `post_tag` WHERE `post_id` = type::record('post', $p1)"
+        );
+        assert_eq!(
+            sur.reverse("id"),
+            "SELECT VALUE `post_id`.* FROM `post_tag` WHERE `tag_id` = type::record('tag', $p1)"
         );
         let lite = M2mSql::new(Dialect::Sqlite, "post", "tag");
         assert_eq!(

@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Django-inspired async ORM for Rust: define structs, get generated migrations and a typed query builder (PostgreSQL, SQLite, MySQL/MariaDB)"
+description = "Django-inspired async ORM for Rust: define structs, get generated migrations and a typed query builder (PostgreSQL, SQLite, MySQL/MariaDB, SurrealDB)"
 keywords = ["orm", "database", "sql", "async", "migrations"]
 categories = ["database", "asynchronous"]
 readme = "../README.md"
@@ -23,6 +23,10 @@ default = ["postgres"]
 postgres = ["dep:rango-orm-postgres"]
 sqlite = ["dep:rango-orm-sqlite"]
 mysql = ["dep:rango-orm-mysql"]
+# SurrealDB 4 (remote servers over ws/http). Links the BUSL-1.1 SurrealDB SDK: opt-in.
+surrealdb = ["dep:rango-orm-surrealdb", "rango-orm-surrealdb/protocol-ws", "rango-orm-surrealdb/protocol-http"]
+# `surrealdb` plus the embedded in-memory engine (`surrealdb+mem://`).
+surrealdb-mem = ["surrealdb", "rango-orm-surrealdb/kv-mem"]
 
 [dependencies]
 rango-orm-core     = { workspace = true }
@@ -30,6 +34,7 @@ rango-orm-derive   = { workspace = true }
 rango-orm-postgres = { workspace = true, optional = true }
 rango-orm-sqlite   = { workspace = true, optional = true }
 rango-orm-mysql    = { workspace = true, optional = true }
+rango-orm-surrealdb = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Standard tool for testing compiler diagnostics (derive error messages).
